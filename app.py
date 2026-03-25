@@ -81,7 +81,7 @@ def format_currency(val):
 # 2. Data Loading (Using Cache)
 @st.cache_data
 def load_data():
-    df = pd.read_csv("cleaned_properties.csv")  # The generated raw CSV
+    df = pd.read_csv("aqarmap_cleaned_properties.csv")  # The generated raw CSV
     
     df = df.dropna(subset=['latitude', 'longitude'])
     df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
