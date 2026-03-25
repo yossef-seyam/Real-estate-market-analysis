@@ -79,7 +79,7 @@ st.markdown("تحليل ذكي ومتقدم لأسعار العقارات باس
 @st.cache_data
 def load_data():
     # تأكد إن اسم الملف نفس الاسم اللي طلع من الـ cleaner
-    df = pd.read_csv("cleaned_properties.csv")
+    df = pd.read_csv("aqarmap_cleaned_properties.csv")
     
     # تنظيف سريع للإحداثيات عشان الخريطة متضربش إيرور واستبعاد النقاط في البحر المتوسط أو خارج مصر
     df = df.dropna(subset=['latitude', 'longitude'])
