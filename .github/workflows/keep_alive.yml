@@ -2,11 +2,13 @@ name: Wake Up Streamlit
 on:
   schedule:
     - cron: '0 */6 * * *' # Runs every 6 hours
-  workflow_dispatch: # Allows you to run it manually to test
+  workflow_dispatch: 
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Opt into the 2026 standard
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -14,29 +16,38 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24' # Updated for 2026 compatibility
 
-      - name: Install Playwright
+      - name: Install Playwright & Dependencies
         run: |
-          npm install -g playwright
+          npm install playwright
           npx playwright install chromium --with-deps
 
       - name: Visit App
         run: |
-          npx playwright install-deps chromium
           node -e "
           const { chromium } = require('playwright');
           (async () => {
-            const browser = await chromium.launch();
+            const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
             console.log('Visiting app...');
-            await page.goto('https://real-estate-market-analysis-ys.streamlit.app/', { waitUntil: 'networkidle' });
-            
-            // Wait 10 seconds to ensure the 'Wake Up' button (if any) or JS triggers
-            await new Promise(r => setTimeout(r, 10000)); 
-            
-            const title = await page.title();
-            console.log('Page title:', title);
-            await browser.close();
+            try {
+              // Standard timeout for Streamlit wake-up
+              await page.goto('https://real-estate-market-analysis-ys.streamlit.app/', { 
+                waitUntil: 'networkidle', 
+                timeout: 60000 
+              });
+              
+              // Wait to ensure the Python backend initializes
+              await new Promise(r => setTimeout(r, 15000)); 
+              
+              const title = await page.title();
+              console.log('Successfully pinged. Page title:', title);
+            } catch (error) {
+              console.error('Failed to load page:', error.message);
+              process.exit(1);
+            } finally {
+              await browser.close();
+            }
           })();
           "
