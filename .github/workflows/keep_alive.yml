@@ -1,0 +1,42 @@
+name: Wake Up Streamlit
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Runs every 6 hours
+  workflow_dispatch: # Allows you to run it manually to test
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright
+          npx playwright install chromium --with-deps
+
+      - name: Visit App
+        run: |
+          npx playwright install-deps chromium
+          node -e "
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            console.log('Visiting app...');
+            await page.goto('https://real-estate-market-analysis-ys.streamlit.app/', { waitUntil: 'networkidle' });
+            
+            // Wait 10 seconds to ensure the 'Wake Up' button (if any) or JS triggers
+            await new Promise(r => setTimeout(r, 10000)); 
+            
+            const title = await page.title();
+            console.log('Page title:', title);
+            await browser.close();
+          })();
+          "
