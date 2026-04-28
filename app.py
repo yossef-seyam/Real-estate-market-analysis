@@ -399,9 +399,14 @@ with tab4:
                 # Decoupled Inference Fallback logic
                 model = joblib.load('regression_model.pkl')
                 
-                # Preprocess strictly aligned array map structure inside Pandas (Mock config)
+                # Preprocess strictly aligned array map structure inside Pandas
                 features = pd.DataFrame([{
-                   'unified_area': area_val, 'unified_rooms': rooms_val, 'unified_bathrooms': bathrooms_val
+                   'unified_area': area_val, 
+                   'unified_rooms': rooms_val, 
+                   'unified_bathrooms': bathrooms_val,
+                   'city': city_val,
+                   'district': district_val,
+                   'view': view_val
                 }]) 
                 prediction = model.predict(features)[0]
                 
