@@ -3,3 +3,6 @@ pandas
 plotly
 scikit-learn
 numpy
+pymongo
+streamlit-folium
+folium
