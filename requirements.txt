@@ -7,3 +7,9 @@ pathlib
 xgboost
 scikit-learn
 pickle5
+streamlit
+pymongo
+plotly
+folium
+streamlit-folium
+google-generativeai
