@@ -1,433 +1,622 @@
+"""
+Property Market Analysis Dashboard
+Modern black and white theme - Streamlit application
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import pymongo
-import os
-import joblib
-from urllib.parse import quote_plus
-from folium import Map
-import folium
-from folium.plugins import Draw, MarkerCluster
-from streamlit_folium import st_folium
-from recommender import get_recommendations
 
-# ==========================================
-# 0. Page Configuration & CSS Injection
-# ==========================================
-st.set_page_config(page_title="Aqarmap Ultimate (V4)", page_icon="🏢", layout="wide")
+st.set_page_config(
+    page_title="Property Market Analysis",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Cairo', sans-serif !important;
-    }
-    
-    .stApp {
-        background: radial-gradient(circle at 10% 20%, rgb(18, 20, 29) 0%, rgb(24, 26, 40) 90%);
-        color: #E2E8F0;
-    }
-    
-    h1, h2, h3 {
-        color: #38bdf8 !important;
-        text-shadow: 0px 4px 15px rgba(56, 189, 248, 0.4);
-    }
+# -- Custom CSS for black/white theme, no emojis --
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    div[data-testid="metric-container"] {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 15px;
+    * { font-family: 'Inter', sans-serif; }
+
+    .main { background-color: #0E1117; }
+
+    .stMetric {
+        background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
         padding: 20px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
-        transition: transform 0.3s ease;
+        border-radius: 12px;
+        border: 1px solid #2A2A3E;
     }
-    
-    div[data-testid="metric-container"]:hover {
-        transform: translateY(-5px);
-        border: 1px solid #38bdf8;
-        box-shadow: 0 4px 30px rgba(56, 189, 248, 0.3);
-    }
-    
-    div[data-testid="metric-container"] > div > div {
-        color: #f8fafc;
-        font-weight: bold;
-    }
-    
-    div[data-testid="metric-container"] label {
-        color: #94a3b8 !important;
-        font-size: 1.1rem;
-    }
-    
-    section[data-testid="stSidebar"] {
-        background: rgba(15, 23, 42, 0.8) !important;
-        backdrop-filter: blur(15px);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    hr {
-        border-color: rgba(255, 255, 255, 0.1) !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+    .stMetric label { color: #888 !important; font-size: 14px !important; }
+    .stMetric .metric-value { color: #FFF !important; }
 
-# ==========================================
-# 1. MongoDB Connection (Cloud Atlas)
-# ==========================================
-@st.cache_resource
-def init_connection():
-    db_password = os.getenv("MONGO_PASSWORD", "seyam")
-    encoded_pwd = quote_plus(db_password)
-    mongo_uri = os.getenv("MONGO_URI", f"mongodb+srv://joseyam:{encoded_pwd}@cluster0.r55mnz5.mongodb.net/?appName=Cluster0")
-    
-    client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-    db = client["real_estate_db"]
-    return db["properties"]
+    h1, h2, h3, h4 { color: #FAFAFA !important; letter-spacing: -0.5px; }
+    h1 { font-weight: 700 !important; font-size: 2.2rem !important; }
+    h2 { font-weight: 600 !important; font-size: 1.6rem !important; border-bottom: 1px solid #2A2A3E; padding-bottom: 8px; }
+    h3 { font-weight: 500 !important; font-size: 1.2rem !important; }
 
-try:
-    collection = init_connection()
-except Exception as e:
-    st.error(f"Failed to connect to MongoDB Atlas: {e}")
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #1A1A2E;
+        border-radius: 8px;
+        color: #888;
+        padding: 10px 20px;
+        border: 1px solid #2A2A3E;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #FFFFFF !important;
+        color: #000 !important;
+    }
+
+    div[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a0a14 0%, #111128 100%);
+        border-right: 1px solid #2A2A3E;
+    }
+
+    .recommendation-card {
+        background: #1A1A2E;
+        border: 1px solid #2A2A3E;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+
+    .kpi-card {
+        background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
+        border: 1px solid #2A2A3E;
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+    }
+    .kpi-card h3 { margin: 0; font-size: 2rem !important; color: #FFF !important; }
+    .kpi-card p { margin: 4px 0 0 0; color: #888; font-size: 13px; }
+
+    .search-result {
+        background: #1A1A2E;
+        border: 1px solid #2A2A3E;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+
+    div[data-testid="stDataFrame"] { border: 1px solid #2A2A3E; border-radius: 8px; }
+
+    /* Buttons - vibrant and readable */
+    .stButton > button {
+        background: linear-gradient(135deg, #534AB7 0%, #7C6BF0 100%) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+        letter-spacing: 0.3px;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #7C6BF0 0%, #9D8FFF 100%) !important;
+        box-shadow: 0 4px 16px rgba(124, 107, 240, 0.4) !important;
+        transform: translateY(-1px);
+    }
+    .stButton > button:active {
+        transform: translateY(0px);
+    }
+
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #0F6E56 0%, #2DD4A8 100%) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+    }
+    .stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #2DD4A8 0%, #5AEFC4 100%) !important;
+        box-shadow: 0 4px 16px rgba(45, 212, 168, 0.4) !important;
+    }
+
+    /* Radio buttons */
+    .stRadio > div { gap: 8px; }
+    .stRadio label {
+        background: #1A1A2E !important;
+        border: 1px solid #2A2A3E !important;
+        border-radius: 6px !important;
+        padding: 6px 14px !important;
+        color: #CCC !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# -- Import project modules --
+from db import (
+    check_connection,
+    get_all_properties,
+    get_district_list,
+    get_district_stats,
+    search_properties,
+    get_document_count,
+)
+from charts import (
+    chart_price_by_district,
+    chart_ppsm_by_district,
+    chart_opportunity_matrix,
+    chart_amenity_forest_plot,
+    chart_amenity_premium_rank,
+    chart_correlation_heatmap,
+    chart_price_distribution,
+    chart_price_by_rooms,
+    chart_roi_by_district,
+    chart_risk_consistency_map,
+    chart_model_comparison,
+)
+from map_view import create_property_map
+from ai_engine import predict_price, get_investment_recommendation, get_gemini_recommendation, model_available
+
+
+# -- Sidebar Navigation --
+st.sidebar.markdown("# Property Analysis")
+st.sidebar.markdown("---")
+
+page = st.sidebar.radio(
+    "Navigation",
+    [
+        "Dashboard",
+        "Market Analysis",
+        "Property Map",
+        "Property Search",
+        "AI Recommendations",
+        "Data Explorer",
+    ],
+    label_visibility="collapsed",
+)
+
+st.sidebar.markdown("---")
+
+
+# -- Check MongoDB --
+@st.cache_data(ttl=60)
+def load_data():
+    return get_all_properties()
+
+
+if not check_connection():
+    st.error(
+        "Cannot connect to MongoDB. Make sure MongoDB is running on localhost:27017. "
+        "Then run: python load_data_to_mongo.py"
+    )
     st.stop()
 
-# Helpers
-def format_currency(val):
-    if pd.isna(val) or val is None: return "N/A"
-    try:
-        val = float(val)
-        if val >= 1_000_000: return f"{val / 1_000_000:,.1f}M EGP"
-        elif val >= 1_000: return f"{val / 1_000:,.1f}K EGP"
-        return f"{val:,.0f} EGP"
-    except:
-        return "N/A"
-
-# Core Title Interpolation Safety Matcher
-def build_title(row):
-    title_val = row.get('title')
-    if pd.isna(title_val) or not str(title_val).strip() or str(title_val) == 'nan':
-        area = int(row.get('unified_area', 0)) if pd.notna(row.get('unified_area')) else 0
-        rooms = int(row.get('unified_rooms', 0)) if pd.notna(row.get('unified_rooms')) else 0
-        prop_type = row.get('property_type', 'Property')
-        if pd.isna(prop_type) or not str(prop_type).strip(): prop_type = 'Property'
-        return f"{area}m² {str(prop_type).title()} in {row.get('district', 'Unknown')}"
-    return str(title_val)
-
-# Core URL Replacer
-def build_absolute_url(url_val):
-    url_val = str(url_val)
-    if "propertyfinder.eg" in url_val and url_val.startswith("https://www.propertyfinder.eghttps"):
-        url_val = url_val.replace("https://www.propertyfinder.eghttps//", "https://")
-    elif url_val.startswith('/'):
-        url_val = f"https://www.propertyfinder.eg{url_val}"
-    elif "http" not in url_val:
-        url_val = f"https://www.propertyfinder.eg/{url_val.lstrip('/')}"
-    return url_val
-
-st.title("🏢 Real Estate Market Intelligence (V4)")
-st.markdown("Distributed Data Architecture backed by MongoDB Atlas with Native Aggregations and Decoupled AI.")
-st.markdown("---")
-
-# ==========================================
-# UI Layout: 4 Tabs
-# ==========================================
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Market Analytics", "🗺️ Spatial Explorer", "🤖 AI Recommender", "🔮 Property Valuation"])
-
-# ------------------------------------------
-# TAB 1: Native MongoDB Analytics
-# ------------------------------------------
-with tab1:
-    st.subheader("📍 Property Distribution Map")
-    st.markdown("Displays a statistically rigorous spatial sample of properties perfectly rendered without overloading browser GPU limitations.")
-    
-    map_sample_size = st.slider("Map Density (Sample Nodes):", min_value=1000, max_value=15000, value=5000, step=1000)
-    
-    with st.spinner("Extracting distributed spatial coordinates natively..."):
-        pipeline_map = [
-            {"$match": {"latitude": {"$type": "number"}, "longitude": {"$type": "number"}}},
-            {"$sample": {"size": map_sample_size}},
-            {"$project": {"latitude": 1, "longitude": 1, "unified_price": 1, "unified_area": 1, "title": 1, "_id": 0}}
-        ]
-        map_df = pd.DataFrame(list(collection.aggregate(pipeline_map)))
-        
-    if not map_df.empty:
-        fig_map = px.scatter_map(
-            map_df,
-            lat="latitude",
-            lon="longitude",
-            color="unified_price",
-            size="unified_area",
-            hover_name="title",
-            hover_data={"latitude": False, "longitude": False, "unified_price": True},
-            color_continuous_scale=px.colors.sequential.Plasma,
-            size_max=15,
-            zoom=10
-        )
-        fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_map, use_container_width=True)
-
-    st.markdown("---")
-
-    st.subheader("📊 Average Price by District (Aggregated Natively)")
-    st.markdown("This bar chart runs entirely inside MongoDB via an Aggregation Pipeline (`$group`, `$sort`), moving only ~30 rows of data into the Pandas application space.")
-    
-    with st.spinner("Executing MongoDB `$group` Pipeline..."):
-        pipeline_bar = [
-            {"$match": {"district": {"$ne": "Unknown"}}},
-            {"$group": {
-                "_id": "$district",
-                "avg_price_per_meter": {"$avg": "$price_per_meter"},
-                "count": {"$sum": 1}
-            }},
-            {"$match": {"count": {"$gt": 5}}}, 
-            {"$sort": {"avg_price_per_meter": -1}},
-            {"$limit": 30}
-        ]
-        
-        dist_df = pd.DataFrame(list(collection.aggregate(pipeline_bar)))
-        
-    if not dist_df.empty:
-        dist_df.rename(columns={"_id": "district"}, inplace=True)
-        
-        fig_bar = px.bar(
-            dist_df, 
-            x='district', 
-            y='avg_price_per_meter', 
-            title="Top 30 Most Expensive Districts by Avg Price/m²",
-            labels={'district': 'District', 'avg_price_per_meter': 'Average Price per m² (EGP)'},
-            color='avg_price_per_meter', 
-            color_continuous_scale='Viridis',
-            template='plotly_dark'
-        )
-        fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    st.markdown("---")
-    
-    st.subheader("📦 Feature Impact on Price (Box Plot)")
-    st.markdown("Box Plots require row-level variance. To prevent loading 52,000 documents into Pandas, we push a fast `$sample` pipeline to MongoDB picking a secure 5,000 document micro-batch representing the population correctly.")
-    
-    available_features = ['has_elevator', 'has_security', 'has_balcony', 'has_pool', 'has_garden', 'has_parking']
-    feature_to_check = st.selectbox("Select a Feature to Analyze:", available_features, format_func=lambda x: x.replace('has_', 'Has ').title())
-    
-    with st.spinner("Extracting MongoDB `$sample` block..."):
-        pipeline_box = [
-            {"$sample": {"size": 5000}},
-            {"$project": {feature_to_check: 1, "unified_price": 1, "_id": 0}}
-        ]
-        box_df = pd.DataFrame(list(collection.aggregate(pipeline_box)))
-        
-    if not box_df.empty:
-        box_df[feature_to_check] = box_df[feature_to_check].map({1: 'Yes', 0: 'No', True: 'Yes', False: 'No'}).fillna('Unknown')
-        
-        q_high = box_df['unified_price'].quantile(0.95)
-        box_df_filtered = box_df[box_df['unified_price'] <= q_high]
-        
-        fig_box = px.box(
-            box_df_filtered, 
-            x=feature_to_check, 
-            y='unified_price', 
-            color=feature_to_check,
-            title=f"Statistical Impact of '{feature_to_check.replace('has_', '').title()}' on Prices (Outliers Scaled)",
-            labels={feature_to_check: 'Feature Presence', 'unified_price': 'Total Price (EGP)'},
-            template='plotly_dark'
-        )
-        fig_box.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_box, use_container_width=True)
-
-
-# ------------------------------------------
-# TAB 2: Spatial Explorer ($geoWithin)
-# ------------------------------------------
-with tab2:
-    st.subheader("📍 Interactive Geofence Query Engine")
-    st.markdown("Draw a polygon around any neighborhood in Egypt. Streamlit-Folium will construct a native `$geoWithin` coordinate matrix mapping clustered markers.")
-    
-    # State tracking to avoid double-loads on interaction
-    if "polygon_coords" not in st.session_state:
-        st.session_state.polygon_coords = None
-
-    # Load Spatial Match
-    match_query = {}
-    if st.session_state.polygon_coords:
-        match_query["location"] = {
-            "$geoWithin": {
-                "$geometry": {
-                    "type": "Polygon",
-                    "coordinates": st.session_state.polygon_coords
-                }
-            }
-        }
-    
-    # Aggressively limits the points when mapped via Folium to keep it browser-safe natively
-    cursor = collection.find(match_query, {"_id": 0}).limit(1000)
-    geo_df = pd.DataFrame(list(cursor))
-
-    # Base Folium Map initialization
-    m = Map(location=[30.0444, 31.2357], zoom_start=11, tiles="CartoDB positron")
-    
-    # Enable Draw Tool
-    draw = Draw(
-        export=False,
-        position="topleft",
-        draw_options={"polygon": True, "polyline": False, "circle": False, "rectangle": True, "marker": False, "circlemarker": False},
-        edit_options={"poly": {"allowIntersection": False}}
+doc_count = get_document_count()
+if doc_count == 0:
+    st.warning(
+        "No data found in MongoDB. Run the data loader first: python load_data_to_mongo.py"
     )
-    m.add_child(draw)
-    
-    # Assign MarkerClusters directly into Folium layers
-    if not geo_df.empty:
-        marker_cluster = MarkerCluster(name="Real Estate Properties").add_to(m)
-        for _, row in geo_df.iterrows():
-            if pd.notna(row.get('latitude')) and pd.notna(row.get('longitude')):
-                clean_title = build_title(row)
-                price_tag = f"<br><b>{format_currency(row.get('unified_price', 0))}</b>"
-                folium.Marker(
-                    location=[row['latitude'], row['longitude']],
-                    popup=f"{clean_title}{price_tag}",
-                    icon=folium.Icon(color="blue", icon="info-sign")
-                ).add_to(marker_cluster)
+    st.stop()
 
-    # st_folium forces dynamic re-rendering on map changes
-    st_data = st_folium(m, height=450, width=1200, returned_objects=["last_active_drawing"], key="spatial_map")
-    
-    if st_data and st_data.get("last_active_drawing"):
-        geom_type = st_data["last_active_drawing"]["geometry"]["type"]
-        if geom_type == "Polygon":
-            poly_data = st_data["last_active_drawing"]["geometry"]["coordinates"]
-            if poly_data != st.session_state.polygon_coords:
-                st.session_state.polygon_coords = poly_data
-                st.rerun() # Refresh to instantly trigger the spatial filter and map the clusters
-            st.success("Geofence bound recognized! $geoWithin executing...")
-            
-    # Quick KPIs dynamically injected natively
-    if not geo_df.empty:
-        gcol1, gcol2, gcol3, gcol4 = st.columns(4)
-        with gcol1: st.metric("Properties Mapped", f"{len(geo_df):,}")
-        with gcol2: st.metric("Average Price", format_currency(geo_df['unified_price'].mean()))
-        with gcol3: st.metric("Avg Price/m²", f"{geo_df['price_per_meter'].mean():,.0f} EGP" if 'price_per_meter' in geo_df else "N/A")
-        with gcol4: st.metric("Average Area", f"{geo_df['unified_area'].mean():,.0f} m²" if 'unified_area' in geo_df else "N/A")
-    elif st.session_state.polygon_coords:
-        st.warning("⚠️ No documents matched inside the configured Polygon Geofence.")
+st.sidebar.markdown(f"**Database**: {doc_count:,} properties")
+
+df = load_data()
 
 
-# ------------------------------------------
-# TAB 3: AI Recommender (Decoupled & Fixed)
-# ------------------------------------------
-with tab3:
-    st.subheader("🤖 Pre-compiled ML Inference Engine")
-    st.markdown("Loads strict `.pkl` artifacts mapped accurately to output the closest Property candidates safely decoupled from dataset RAM issues.")
-    
-    rec_col1, rec_col2, rec_col3 = st.columns(3)
-    with rec_col1:
-        target_price = st.number_input("Target Budget (EGP):", min_value=100000, value=5000000, step=100000)
-        target_rooms = st.number_input("Minimum Rooms:", min_value=1, value=3)
-        
-    with rec_col2:
-        valid_districts = collection.distinct("district")
-        valid_districts = sorted([d for d in valid_districts if d and d != 'Unknown'])
-        if not valid_districts: valid_districts = ["Cairo", "Nasr City", "New Cairo", "Maadi"]
-            
-        target_district = st.selectbox("Preferred Area:", valid_districts)
-        
-        pipeline_coord = [{"$match": {"district": target_district}}, {"$limit": 1}]
-        target_doc = list(collection.aggregate(pipeline_coord))
-        if target_doc and 'location' in target_doc[0]:
-            target_lon = target_doc[0]['location']['coordinates'][0]
-            target_lat = target_doc[0]['location']['coordinates'][1]
+# ============================================================
+# PAGE: Dashboard
+# ============================================================
+if page == "Dashboard":
+    st.title("Property Market Dashboard")
+    st.markdown("Overview of the Egyptian real estate market based on aggregated listing data.")
+
+    # KPI row
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        st.metric("Total Properties", f"{len(df):,}")
+    with col2:
+        median_price = df["unified_price"].median()
+        st.metric("Median Price", f"{median_price/1e6:.2f}M EGP")
+    with col3:
+        avg_area = df["unified_area"].mean()
+        st.metric("Avg Area", f"{avg_area:.0f} sqm")
+    with col4:
+        avg_ppsm = df["price_per_sqm"].mean()
+        st.metric("Avg Price/sqm", f"{avg_ppsm:,.0f} EGP")
+    with col5:
+        avg_roi = df["estimated_roi_percent"].mean()
+        st.metric("Avg ROI", f"{avg_roi:.1f}%")
+
+    st.markdown("---")
+
+    # Two column layout for overview charts
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.plotly_chart(chart_price_distribution(df), use_container_width=True)
+
+    with col_right:
+        st.plotly_chart(chart_price_by_district(df), use_container_width=True)
+
+    st.markdown("---")
+
+    col_left2, col_right2 = st.columns(2)
+
+    with col_left2:
+        st.plotly_chart(chart_ppsm_by_district(df), use_container_width=True)
+
+    with col_right2:
+        st.plotly_chart(chart_opportunity_matrix(df), use_container_width=True)
+
+    # District summary table
+    st.markdown("## District Summary")
+    stats = get_district_stats()
+    if not stats.empty:
+        display_stats = stats[["district", "count", "mean_price", "mean_ppsm", "mean_roi", "cv"]].copy()
+        display_stats.columns = ["District", "Listings", "Avg Price (EGP)", "Avg PPSM (EGP)", "Avg ROI (%)", "Price CV"]
+        display_stats["Avg Price (EGP)"] = display_stats["Avg Price (EGP)"].apply(lambda x: f"{x:,.0f}")
+        display_stats["Avg PPSM (EGP)"] = display_stats["Avg PPSM (EGP)"].apply(lambda x: f"{x:,.0f}")
+        display_stats["Avg ROI (%)"] = display_stats["Avg ROI (%)"].apply(lambda x: f"{x:.1f}")
+        display_stats["Price CV"] = display_stats["Price CV"].apply(lambda x: f"{x:.2f}")
+        st.dataframe(display_stats, use_container_width=True, hide_index=True)
+
+
+# ============================================================
+# PAGE: Market Analysis
+# ============================================================
+elif page == "Market Analysis":
+    st.title("Market Analysis")
+    st.markdown("Interactive charts exploring price patterns, amenity impacts, and market structure.")
+
+    tab1, tab2, tab3 = st.tabs(["Pricing", "Amenities", "Statistical"])
+
+    with tab1:
+        st.plotly_chart(chart_price_by_district(df), use_container_width=True)
+        st.markdown("---")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(chart_ppsm_by_district(df), use_container_width=True)
+        with col2:
+            st.plotly_chart(chart_opportunity_matrix(df), use_container_width=True)
+
+        st.markdown("---")
+        st.plotly_chart(chart_price_distribution(df), use_container_width=True)
+
+        st.markdown("---")
+        st.plotly_chart(chart_price_by_rooms(df), use_container_width=True)
+
+    with tab2:
+        st.plotly_chart(chart_amenity_forest_plot(df), use_container_width=True)
+        st.markdown("---")
+        st.plotly_chart(chart_amenity_premium_rank(df), use_container_width=True)
+
+    with tab3:
+        st.plotly_chart(chart_correlation_heatmap(df), use_container_width=True)
+        st.markdown("---")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(chart_roi_by_district(df), use_container_width=True)
+        with col2:
+            st.plotly_chart(chart_risk_consistency_map(df), use_container_width=True)
+
+        st.markdown("---")
+        st.plotly_chart(chart_model_comparison(), use_container_width=True)
+
+
+# ============================================================
+# PAGE: Property Map
+# ============================================================
+elif page == "Property Map":
+    st.title("Property Map")
+    st.markdown("Geographic visualization of property listings across Egyptian districts.")
+
+    map_type = st.radio(
+        "Map Type",
+        ["District Markers", "Price Heat Map"],
+        horizontal=True,
+    )
+
+    map_mode = "markers" if map_type == "District Markers" else "heat"
+
+    with st.spinner("Loading map..."):
+        from streamlit_folium import st_folium
+        m = create_property_map(df, map_type=map_mode)
+        st_folium(m, width=None, height=600, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown(
+        "**Note**: Properties are mapped to their district center coordinates. "
+        "Marker size represents listing count. Color intensity represents median price level. "
+        "Click a marker for detailed district statistics."
+    )
+
+
+# ============================================================
+# PAGE: Property Search
+# ============================================================
+elif page == "Property Search":
+    st.title("Property Search")
+    st.markdown("Find properties matching your criteria. Results are queried directly from the database.")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        districts = ["All"] + get_district_list()
+        selected_district = st.selectbox("District", districts)
+
+        min_area = st.number_input("Min Area (sqm)", min_value=0, value=50, step=10)
+        max_area = st.number_input("Max Area (sqm)", min_value=0, value=500, step=10)
+
+    with col2:
+        min_price = st.number_input(
+            "Min Price (EGP)", min_value=0, value=100000, step=100000,
+            help="Minimum property price"
+        )
+        max_price = st.number_input(
+            "Max Price (EGP)", min_value=0, value=50000000, step=500000,
+            help="Maximum property price"
+        )
+        min_rooms = st.number_input("Min Rooms", min_value=0, value=1, step=1)
+        max_rooms = st.number_input("Max Rooms", min_value=0, value=5, step=1)
+
+    with col3:
+        min_bath = st.number_input("Min Bathrooms", min_value=0, value=1, step=1)
+        max_bath = st.number_input("Max Bathrooms", min_value=0, value=5, step=1)
+
+        amenity_options = ["Elevator", "Security", "Balcony", "Pool", "Garden", "Parking"]
+        selected_amenities = st.multiselect("Required Amenities", amenity_options)
+
+    max_results = st.slider("Max Results", min_value=10, max_value=500, value=100, step=10)
+
+    if st.button("Search", type="primary", use_container_width=True):
+        with st.spinner("Querying database..."):
+            results = search_properties(
+                district=selected_district,
+                min_price=min_price if min_price > 0 else None,
+                max_price=max_price if max_price > 0 else None,
+                min_area=min_area if min_area > 0 else None,
+                max_area=max_area if max_area > 0 else None,
+                min_rooms=min_rooms if min_rooms > 0 else None,
+                max_rooms=max_rooms if max_rooms > 0 else None,
+                min_bathrooms=min_bath if min_bath > 0 else None,
+                max_bathrooms=max_bath if max_bath > 0 else None,
+                amenities=[a.lower() for a in selected_amenities] if selected_amenities else None,
+                limit=max_results,
+            )
+
+        if results.empty:
+            st.warning("No properties found matching your criteria. Try adjusting the filters.")
         else:
-            target_lat, target_lon = 30.03, 31.40 
-            
-    with rec_col3:
-        w_loc = st.slider("Location Proximity (%)", 0, 100, 40) / 100.0
-        w_price = st.slider("Price Match (%)", 0, 100, 40) / 100.0
-        w_area = st.slider("Area & Amenities (%)", 0, 100, 20) / 100.0
+            st.markdown(f"### Found {len(results):,} properties")
 
-    if st.button("🚀 Run Pre-compiled KNN Inference", type="primary"):
-        with st.spinner("Generating inference vectors..."):
-            try:
-                recs = get_recommendations(target_lat, target_lon, target_price, min_rooms=target_rooms, 
-                                           weight_loc=w_loc, weight_price=w_price, weight_area=w_area)
-                                           
-                if not recs.empty:
-                    st.success("🎉 Fast inference complete!")
-                    for i, (_, row) in enumerate(recs.iterrows()):
-                        # Execute Interpolation Security Protocol 
-                        clean_title = build_title(row)
-                        clean_url = build_absolute_url(row.get('url'))
-                            
-                        st.markdown(f"### #{i+1} - {clean_title}")
-                        st.markdown(f"**Price:** {format_currency(row.get('unified_price', 0))} | **Area:** {row.get('unified_area', 0)} m²")
-                        
-                        # Use premium st.link_button explicitly isolating bugs from markdown mapping
-                        if clean_url:
-                            st.link_button("🔗 View External Listing", clean_url)
-                        st.markdown("---")
+            # Summary metrics
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("Median Price", f"{results['unified_price'].median()/1e6:.2f}M")
+            with c2:
+                st.metric("Avg Area", f"{results['unified_area'].mean():.0f} sqm")
+            with c3:
+                st.metric("Avg Price/sqm", f"{results['price_per_sqm'].mean():,.0f}")
+            with c4:
+                st.metric("Avg ROI", f"{results['estimated_roi_percent'].mean():.1f}%")
+
+            # Results table
+            display_cols = [
+                "district", "unified_price", "unified_area", "price_per_sqm",
+                "unified_rooms", "unified_bathrooms", "estimated_roi_percent",
+                "has_elevator", "has_security", "has_balcony", "has_pool",
+                "has_garden", "has_parking",
+            ]
+            existing_cols = [c for c in display_cols if c in results.columns]
+            display_df = results[existing_cols].copy()
+
+            rename_map = {
+                "district": "District",
+                "unified_price": "Price (EGP)",
+                "unified_area": "Area (sqm)",
+                "price_per_sqm": "Price/sqm",
+                "unified_rooms": "Rooms",
+                "unified_bathrooms": "Bathrooms",
+                "estimated_roi_percent": "ROI %",
+                "has_elevator": "Elevator",
+                "has_security": "Security",
+                "has_balcony": "Balcony",
+                "has_pool": "Pool",
+                "has_garden": "Garden",
+                "has_parking": "Parking",
+            }
+            display_df = display_df.rename(columns=rename_map)
+
+            if "Price (EGP)" in display_df.columns:
+                display_df["Price (EGP)"] = display_df["Price (EGP)"].apply(lambda x: f"{x:,.0f}")
+            if "Price/sqm" in display_df.columns:
+                display_df["Price/sqm"] = display_df["Price/sqm"].apply(lambda x: f"{x:,.0f}")
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+# ============================================================
+# PAGE: AI Recommendations
+# ============================================================
+elif page == "AI Recommendations":
+    st.title("AI-Powered Analysis")
+    st.markdown(
+        "Enter property details below and the trained machine learning model will "
+        "predict the fair market value and provide investment recommendations."
+    )
+
+    if not model_available():
+        st.error("Model file not found (rf_model.pkl). The AI features require the trained model.")
+        st.stop()
+
+    # API key input in sidebar
+    api_key = st.sidebar.text_input("Gemini API Key", type="password", key="gemini_key",
+                                     help="Enter your Google Gemini API key for AI-powered recommendations")
+
+    st.markdown("## Property Details")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        districts = get_district_list()
+        ai_district = st.selectbox("District", districts, key="ai_district")
+        ai_area = st.number_input("Area (sqm)", min_value=10, max_value=2000, value=120, step=10)
+        ai_rooms = st.number_input("Number of Rooms", min_value=1, max_value=10, value=3, step=1)
+        ai_bathrooms = st.number_input("Number of Bathrooms", min_value=1, max_value=10, value=2, step=1)
+
+    with col2:
+        st.markdown("**Amenities**")
+        ai_elevator = 1 if st.checkbox("Elevator") else 0
+        ai_security = 1 if st.checkbox("Security") else 0
+        ai_balcony = 1 if st.checkbox("Balcony") else 0
+        ai_pool = 1 if st.checkbox("Pool") else 0
+        ai_garden = 1 if st.checkbox("Garden") else 0
+        ai_parking = 1 if st.checkbox("Parking") else 0
+
+    if st.button("Get AI Analysis", type="primary", use_container_width=True):
+        with st.spinner("Running model prediction..."):
+            result = predict_price(
+                area=ai_area,
+                rooms=ai_rooms,
+                bathrooms=ai_bathrooms,
+                district=ai_district,
+                has_elevator=ai_elevator,
+                has_security=ai_security,
+                has_balcony=ai_balcony,
+                has_pool=ai_pool,
+                has_garden=ai_garden,
+                has_parking=ai_parking,
+            )
+
+        if result is None:
+            st.error("Model could not make a prediction. Check if rf_model.pkl is valid.")
+        elif "error" in result:
+            st.error(f"Prediction error: {result['error']}")
+        else:
+            st.markdown("---")
+            st.markdown("## Prediction Results")
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(
+                    f'<div class="kpi-card"><h3>{result["predicted_price"]/1e6:.2f}M EGP</h3>'
+                    f'<p>Estimated Fair Market Value</p></div>',
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                st.markdown(
+                    f'<div class="kpi-card"><h3>{result["price_per_sqm"]:,.0f} EGP</h3>'
+                    f'<p>Predicted Price per sqm</p></div>',
+                    unsafe_allow_html=True,
+                )
+            with c3:
+                st.markdown(
+                    f'<div class="kpi-card"><h3>{result["estimated_monthly_rent"]/1e3:.1f}K EGP</h3>'
+                    f'<p>Estimated Monthly Rent</p></div>',
+                    unsafe_allow_html=True,
+                )
+
+            # Detailed breakdown
+            st.markdown("---")
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.markdown("### Financial Summary")
+                fin_data = {
+                    "Metric": [
+                        "Predicted Price",
+                        "Price per sqm",
+                        "District Avg Price/sqm",
+                        "Estimated Annual Rent",
+                        "Estimated Monthly Rent",
+                        "Estimated ROI",
+                    ],
+                    "Value": [
+                        f"{result['predicted_price']:,.0f} EGP",
+                        f"{result['price_per_sqm']:,.0f} EGP",
+                        f"{result['district_avg_ppsm']:,.0f} EGP",
+                        f"{result['estimated_annual_rent']:,.0f} EGP",
+                        f"{result['estimated_monthly_rent']:,.0f} EGP",
+                        f"{result['estimated_roi']:.1f}%",
+                    ],
+                }
+                st.dataframe(pd.DataFrame(fin_data), use_container_width=True, hide_index=True)
+
+            with col_b:
+                st.markdown("### AI Recommendations")
+
+                if api_key:
+                    with st.spinner("Generating AI-powered analysis..."):
+                        ai_text = get_gemini_recommendation(
+                            api_key=api_key,
+                            district=ai_district,
+                            area=ai_area,
+                            rooms=ai_rooms,
+                            bathrooms=ai_bathrooms,
+                            amenities={
+                                "elevator": ai_elevator, "security": ai_security,
+                                "balcony": ai_balcony, "pool": ai_pool,
+                                "garden": ai_garden, "parking": ai_parking,
+                            },
+                            prediction=result,
+                            df=df,
+                        )
+                    if ai_text and not ai_text.startswith("ERROR:"):
+                        st.markdown(
+                            f'<div class="recommendation-card">{ai_text}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        error_msg = ai_text.replace("ERROR: ", "") if ai_text else "Unknown error"
+                        st.warning(f"AI recommendation failed: {error_msg}")
                 else:
-                    st.error("No properties passed the minimum parameter screening.")
-            except FileNotFoundError:
-                st.error("Model pickles not found on server! Please run `python train_models.py` to generate the AI vector states.")
-            except Exception as e:
-                st.error(f"Inference error: {e}")
+                    # Fallback to data-driven recommendations
+                    recommendations = get_investment_recommendation(
+                        df, ai_district, ai_area, ai_rooms, result["predicted_price"]
+                    )
+                    for i, rec in enumerate(recommendations, 1):
+                        st.markdown(
+                            f'<div class="recommendation-card">'
+                            f'<strong>{i}.</strong> {rec}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.info("Enter a Gemini API key in the sidebar for AI-powered recommendations.")
 
-# ------------------------------------------
-# TAB 4: Property Valuation Engine (Regression)
-# ------------------------------------------
-with tab4:
-    st.subheader("🔮 Property Valuation Algorithm (Regression)")
-    st.markdown("Fill in the fields below. A decoupled `RandomForestRegressor` intercepts the vector natively and computes a highly accurate Localized Market Matrix Estimation.")
-    
-    with st.form("valuation_form"):
-        val_col1, val_col2 = st.columns(2)
-        with val_col1:
-            city_val = st.selectbox("Property City:", ["Cairo", "Giza", "Alexandria", "North Coast", "Red Sea"])
-            district_val = st.selectbox("Neighborhood District:", ["New Cairo", "Nasr City", "Maadi", "Zamalek", "6th of October", "Sheikh Zayed"])
-            area_val = st.number_input("Total Square Meters (m²):", min_value=10, max_value=5000, value=150, step=10)
-        with val_col2:
-            rooms_val = st.slider("Number of Rooms:", 1, 15, 3)
-            bathrooms_val = st.slider("Number of Bathrooms:", 1, 10, 2)
-            finish_val = st.selectbox("Finishing Level:", ["Extra Super Lux", "Super Lux", "Lux", "Half-finished", "Core & Shell"])
-            view_val = st.selectbox("Main View:", ["Main Street", "Garden", "Side Street", "Nile/Sea View"])
-            
-        submitted = st.form_submit_button("Predict Estimated Market Value", type="primary")
-        
-    if submitted:
-        # We explicitly lock inside a dedicated container for glow/box formatting styling
-        with st.container():
-            try:
-                # Decoupled Inference Fallback logic
-                model = joblib.load('regression_model.pkl')
-                
-                # Preprocess strictly aligned array map structure inside Pandas
-                features = pd.DataFrame([{
-                   'unified_area': area_val, 
-                   'unified_rooms': rooms_val, 
-                   'unified_bathrooms': bathrooms_val,
-                   'city': city_val,
-                   'district': district_val,
-                   'view': view_val
-                }]) 
-                prediction = model.predict(features)[0]
-                
-            except Exception as e:
-                # Mock robust logic algorithm providing actual dynamic variance fallback when model absent securely
-                st.info(f"Using Algorithm Fallback mode (Linear Baseline). Model `.pkl` missing: {e}")
-                base_price = (area_val * 25000) 
-                
-                # Apply heuristic pricing boundaries simulating complex Random Forest mapping algorithms
-                if finish_val == "Extra Super Lux": base_price *= 1.45
-                elif finish_val == "Super Lux": base_price *= 1.25
-                elif finish_val == "Half-finished": base_price *= 0.8
-                
-                if view_val == "Nile/Sea View": base_price *= 1.4
-                elif view_val == "Garden": base_price *= 1.15
-                elif view_val == "Side Street": base_price *= 0.95
-                
-                # City baseline scalers
-                if city_val in ["North Coast", "Alexandria"]: base_price *= 1.3
-                
-                prediction = base_price * (1 + (rooms_val * 0.05) + (bathrooms_val * 0.05))
-                
-            st.success("✅ Valuation Vector Matrix Complete!")
-            st.metric("Estimated Localized Market Value", format_currency(prediction), "±5.3% Confidence Interval")
+
+# ============================================================
+# PAGE: Data Explorer
+# ============================================================
+elif page == "Data Explorer":
+    st.title("Data Explorer")
+    st.markdown("Browse the raw property dataset with filtering and sorting.")
+
+    # Quick filters
+    col1, col2 = st.columns(2)
+    with col1:
+        filter_district = st.selectbox("Filter by District", ["All"] + get_district_list(), key="explorer_district")
+    with col2:
+        sort_by = st.selectbox("Sort by", ["unified_price", "unified_area", "price_per_sqm", "estimated_roi_percent"])
+
+    filtered = df.copy()
+    if filter_district != "All":
+        filtered = filtered[filtered["district"] == filter_district]
+
+    sort_order = st.radio("Sort Order", ["Descending", "Ascending"], horizontal=True)
+    filtered = filtered.sort_values(sort_by, ascending=(sort_order == "Ascending"))
+
+    st.markdown(f"Showing {len(filtered):,} of {len(df):,} properties")
+    st.dataframe(filtered.head(500), use_container_width=True, hide_index=True)
+
+    # Download
+    csv = filtered.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Filtered Data (CSV)",
+        data=csv,
+        file_name="filtered_properties.csv",
+        mime="text/csv",
+    )
