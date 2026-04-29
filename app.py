@@ -139,9 +139,6 @@ import os
 
 CSV_PATH = os.path.join("Cleaning Data", "final_unified_property_data.csv")
 
-@st.cache_data(ttl=3600)
-def get_all_properties():
-    if not os.path.exists(CSV_PATH):
 # -- Data Loading Helper (Option B: Local CSV) --
 @st.cache_data
 def load_data_from_csv():
