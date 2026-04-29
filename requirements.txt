@@ -1,8 +1,9 @@
-streamlit
-pandas
-plotly
-scikit-learn
+seaborn
+matplotlib
 numpy
-pymongo
-streamlit-folium
-folium
+pandas
+scipy
+pathlib
+xgboost
+scikit-learn
+pickle5
