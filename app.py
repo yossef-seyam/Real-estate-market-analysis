@@ -134,15 +134,70 @@ st.markdown(
 )
 
 
-# -- Import project modules --
-from db import (
-    check_connection,
-    get_all_properties,
-    get_district_list,
-    get_district_stats,
-    search_properties,
-    get_document_count,
-)
+# -- Bypass MongoDB and Load CSV Natively --
+import os
+
+CSV_PATH = os.path.join("Cleaning Data", "final_unified_property_data.csv")
+
+@st.cache_data(ttl=3600)
+def get_all_properties():
+    if not os.path.exists(CSV_PATH):
+# -- Data Loading Helper (Option B: Local CSV) --
+@st.cache_data
+def load_data_from_csv():
+    csv_path = "Cleaning Data/final_unified_property_data.csv"
+    try:
+        df = pd.read_csv(csv_path)
+        # Ensure ROI column exists if not present
+        if "estimated_roi_percent" not in df.columns:
+            df["estimated_roi_percent"] = 7.0 # Default value
+        # Ensure price_per_sqm exists
+        if "price_per_sqm" not in df.columns:
+            df["price_per_sqm"] = df["unified_price"] / df["unified_area"]
+        return df
+    except Exception as e:
+        st.error(f"Error loading local CSV: {e}")
+        return pd.DataFrame()
+
+# Local implementation of DB functions
+def get_district_list_local(df):
+    districts = df["district"].unique()
+    districts = [d for d in districts if d and str(d).lower() not in ["unknown", "other", "nan"]]
+    return sorted(districts)
+
+def get_district_stats_local(df):
+    stats = df.groupby("district").agg(
+        count=("unified_price", "size"),
+        mean_price=("unified_price", "mean"),
+        mean_ppsm=("price_per_sqm", "mean"),
+        mean_roi=("estimated_roi_percent", "mean"),
+        std_price=("unified_price", "std")
+    ).reset_index()
+    stats = stats[~stats["district"].isin(["unknown", "Other"])]
+    stats["cv"] = stats["std_price"] / stats["mean_price"]
+    return stats.sort_values("count", ascending=False)
+
+def search_properties_local(df, district=None, min_price=None, max_price=None, min_area=None, max_area=None, min_rooms=None, max_rooms=None, min_bathrooms=None, max_bathrooms=None, amenities=None, limit=100):
+    filtered = df.copy()
+    if district and district != "All":
+        filtered = filtered[filtered["district"] == district]
+    if min_price: filtered = filtered[filtered["unified_price"] >= min_price]
+    if max_price: filtered = filtered[filtered["unified_price"] <= max_price]
+    if min_area: filtered = filtered[filtered["unified_area"] >= min_area]
+    if max_area: filtered = filtered[filtered["unified_area"] <= max_area]
+    if min_rooms: filtered = filtered[filtered["unified_rooms"] >= min_rooms]
+    if max_rooms: filtered = filtered[filtered["unified_rooms"] <= max_rooms]
+    if min_bathrooms: filtered = filtered[filtered["unified_bathrooms"] >= min_bathrooms]
+    if max_bathrooms: filtered = filtered[filtered["unified_bathrooms"] <= max_bathrooms]
+    
+    if amenities:
+        for amenity in amenities:
+            col = f"has_{amenity.lower()}"
+            if col in filtered.columns:
+                filtered = filtered[filtered[col] == 1]
+    
+    return filtered.head(limit)
+
 from charts import (
     chart_price_by_district,
     chart_ppsm_by_district,
@@ -180,29 +235,14 @@ page = st.sidebar.radio(
 st.sidebar.markdown("---")
 
 
-# -- Check MongoDB --
-@st.cache_data(ttl=60)
-def load_data():
-    return get_all_properties()
+# -- Load Local Data (Option B) --
+df = load_data_from_csv()
 
-
-if not check_connection():
-    st.error(
-        "Cannot connect to MongoDB. Make sure MongoDB is running on localhost:27017. "
-        "Then run: python load_data_to_mongo.py"
-    )
+if df.empty:
+    st.error("The local data file was not found or is empty. Please ensure 'Cleaning Data/final_unified_property_data.csv' exists.")
     st.stop()
 
-doc_count = get_document_count()
-if doc_count == 0:
-    st.warning(
-        "No data found in MongoDB. Run the data loader first: python load_data_to_mongo.py"
-    )
-    st.stop()
-
-st.sidebar.markdown(f"**Database**: {doc_count:,} properties")
-
-df = load_data()
+st.sidebar.success(f"**Local Data Mode**: {len(df):,} properties loaded")
 
 
 # ============================================================
@@ -253,7 +293,7 @@ if page == "Dashboard":
 
     # District summary table
     st.markdown("## District Summary")
-    stats = get_district_stats()
+    stats = get_district_stats_local(df)
     if not stats.empty:
         display_stats = stats[["district", "count", "mean_price", "mean_ppsm", "mean_roi", "cv"]].copy()
         display_stats.columns = ["District", "Listings", "Avg Price (EGP)", "Avg PPSM (EGP)", "Avg ROI (%)", "Price CV"]
@@ -346,7 +386,7 @@ elif page == "Property Search":
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        districts = ["All"] + get_district_list()
+        districts = ["All"] + get_district_list_local(df)
         selected_district = st.selectbox("District", districts)
 
         min_area = st.number_input("Min Area (sqm)", min_value=0, value=50, step=10)
@@ -374,8 +414,9 @@ elif page == "Property Search":
     max_results = st.slider("Max Results", min_value=10, max_value=500, value=100, step=10)
 
     if st.button("Search", type="primary", use_container_width=True):
-        with st.spinner("Querying database..."):
-            results = search_properties(
+        with st.spinner("Searching local data..."):
+            results = search_properties_local(
+                df,
                 district=selected_district,
                 min_price=min_price if min_price > 0 else None,
                 max_price=max_price if max_price > 0 else None,
@@ -463,7 +504,7 @@ elif page == "AI Recommendations":
     col1, col2 = st.columns(2)
 
     with col1:
-        districts = get_district_list()
+        districts = get_district_list_local(df)
         ai_district = st.selectbox("District", districts, key="ai_district")
         ai_area = st.number_input("Area (sqm)", min_value=10, max_value=2000, value=120, step=10)
         ai_rooms = st.number_input("Number of Rooms", min_value=1, max_value=10, value=3, step=1)
@@ -598,7 +639,7 @@ elif page == "Data Explorer":
     # Quick filters
     col1, col2 = st.columns(2)
     with col1:
-        filter_district = st.selectbox("Filter by District", ["All"] + get_district_list(), key="explorer_district")
+        filter_district = st.selectbox("Filter by District", ["All"] + get_district_list_local(df), key="explorer_district")
     with col2:
         sort_by = st.selectbox("Sort by", ["unified_price", "unified_area", "price_per_sqm", "estimated_roi_percent"])
 

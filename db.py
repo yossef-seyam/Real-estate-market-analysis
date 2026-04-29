@@ -1,90 +1,57 @@
 """
-MongoDB connection helper for the Property Analysis Dashboard.
+Local CSV connection helper for the Property Analysis Dashboard.
+Replaces the MongoDB Atlas architecture with local Pandas operations.
 """
 
 import pandas as pd
-from pymongo import MongoClient
 import os
-from urllib.parse import quote_plus
 
-db_password = os.getenv("MONGO_PASSWORD", "seyam")
-encoded_pwd = quote_plus(db_password)
-MONGO_URI = os.getenv("MONGO_URI", f"mongodb+srv://joseyam:{encoded_pwd}@cluster0.r55mnz5.mongodb.net/?appName=Cluster0")
-
-DB_NAME = "real_estate_db"
-COLLECTION_NAME = "properties"
-
-def get_client():
-    return MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-
-
-def get_db():
-    return get_client()[DB_NAME]
-
-
-def get_collection():
-    return get_db()[COLLECTION_NAME]
-
-
-def query_properties(filters=None, projection=None, limit=0):
-    """
-    Query properties from MongoDB with optional filters.
-    Returns a pandas DataFrame.
-    """
-    collection = get_collection()
-    filters = filters or {}
-    cursor = collection.find(filters, projection)
-    if limit > 0:
-        cursor = cursor.limit(limit)
-    data = list(cursor)
-    if not data:
-        return pd.DataFrame()
-    df = pd.DataFrame(data)
-    if "_id" in df.columns:
-        df = df.drop(columns=["_id"])
-    return df
-
+CSV_PATH = os.path.join(os.path.dirname(__file__), "Cleaning Data", "final_unified_property_data.csv")
+_df_cache = None
 
 def get_all_properties():
     """Load all properties as a DataFrame."""
-    return query_properties()
+    global _df_cache
+    if _df_cache is None:
+        try:
+            _df_cache = pd.read_csv(CSV_PATH)
+        except Exception:
+            _df_cache = pd.DataFrame()
+    return _df_cache
 
 
 def get_district_list():
     """Get sorted list of unique districts."""
-    collection = get_collection()
-    districts = collection.distinct("district")
-    districts = [d for d in districts if d and d != "unknown" and d != "Other"]
+    df = get_all_properties()
+    if df.empty or "district" not in df.columns:
+        return []
+    districts = df["district"].dropna().unique()
+    districts = [d for d in districts if str(d).lower() not in ["unknown", "other"]]
     return sorted(districts)
 
 
 def get_district_stats():
-    """Aggregation pipeline for district-level statistics."""
-    collection = get_collection()
-    pipeline = [
-        {"$match": {"district": {"$nin": ["unknown", "Other"]}}},
-        {
-            "$group": {
-                "_id": "$district",
-                "count": {"$sum": 1},
-                "mean_price": {"$avg": "$unified_price"},
-                "median_price": {"$avg": "$unified_price"},
-                "mean_ppsm": {"$avg": "$price_per_sqm"},
-                "mean_area": {"$avg": "$unified_area"},
-                "mean_rooms": {"$avg": "$unified_rooms"},
-                "mean_roi": {"$avg": "$estimated_roi_percent"},
-                "std_price": {"$stdDevPop": "$unified_price"},
-            }
-        },
-        {"$sort": {"count": -1}},
-    ]
-    results = list(collection.aggregate(pipeline))
-    if not results:
+    """Aggregation pipeline equivalent for district-level statistics."""
+    df = get_all_properties()
+    if df.empty or "district" not in df.columns:
         return pd.DataFrame()
-    df = pd.DataFrame(results)
-    df = df.rename(columns={"_id": "district"})
-    df["cv"] = df["std_price"] / df["mean_price"]
-    return df
+        
+    valid_df = df[~df["district"].isin(["unknown", "Other", "Unknown"])]
+    
+    stats = valid_df.groupby("district").agg(
+        count=("unified_price", "count"),
+        mean_price=("unified_price", "mean"),
+        median_price=("unified_price", "median"),
+        mean_ppsm=("price_per_sqm", "mean"),
+        mean_area=("unified_area", "mean"),
+        mean_rooms=("unified_rooms", "mean"),
+        mean_roi=("estimated_roi_percent", "mean"),
+        std_price=("unified_price", "std"),
+    ).reset_index()
+    
+    stats = stats.sort_values("count", ascending=False)
+    stats["cv"] = stats["std_price"] / stats["mean_price"]
+    return stats
 
 
 def search_properties(
@@ -100,65 +67,55 @@ def search_properties(
     amenities=None,
     limit=100,
 ):
-    """Search properties with multiple filter criteria."""
-    filters = {}
-
+    """Search properties with multiple filter criteria using Pandas."""
+    df = get_all_properties()
+    if df.empty:
+        return df
+        
+    filtered = df.copy()
+    
     if district and district != "All":
-        filters["district"] = district
-
-    price_filter = {}
+        filtered = filtered[filtered["district"] == district]
+        
     if min_price is not None:
-        price_filter["$gte"] = min_price
+        filtered = filtered[filtered["unified_price"] >= min_price]
     if max_price is not None:
-        price_filter["$lte"] = max_price
-    if price_filter:
-        filters["unified_price"] = price_filter
-
-    area_filter = {}
+        filtered = filtered[filtered["unified_price"] <= max_price]
+        
     if min_area is not None:
-        area_filter["$gte"] = min_area
+        filtered = filtered[filtered["unified_area"] >= min_area]
     if max_area is not None:
-        area_filter["$lte"] = max_area
-    if area_filter:
-        filters["unified_area"] = area_filter
-
-    rooms_filter = {}
+        filtered = filtered[filtered["unified_area"] <= max_area]
+        
     if min_rooms is not None:
-        rooms_filter["$gte"] = min_rooms
+        filtered = filtered[filtered["unified_rooms"] >= min_rooms]
     if max_rooms is not None:
-        rooms_filter["$lte"] = max_rooms
-    if rooms_filter:
-        filters["unified_rooms"] = rooms_filter
-
-    bath_filter = {}
+        filtered = filtered[filtered["unified_rooms"] <= max_rooms]
+        
     if min_bathrooms is not None:
-        bath_filter["$gte"] = min_bathrooms
+        filtered = filtered[filtered["unified_bathrooms"] >= min_bathrooms]
     if max_bathrooms is not None:
-        bath_filter["$lte"] = max_bathrooms
-    if bath_filter:
-        filters["unified_bathrooms"] = bath_filter
+        filtered = filtered[filtered["unified_bathrooms"] <= max_bathrooms]
 
     if amenities:
         for amenity in amenities:
             col = f"has_{amenity.lower()}"
-            filters[col] = 1
+            if col in filtered.columns:
+                # Assuming flags are 1/0 or True/False
+                filtered = filtered[filtered[col] == 1]
 
-    return query_properties(filters=filters, limit=limit)
+    if limit > 0:
+        filtered = filtered.head(limit)
+        
+    return filtered
 
 
 def check_connection():
-    """Check if MongoDB is reachable."""
-    try:
-        client = get_client()
-        client.admin.command("ping")
-        return True
-    except Exception:
-        return False
+    """Check if the CSV file is accessible."""
+    return os.path.exists(CSV_PATH)
 
 
 def get_document_count():
-    """Get total number of documents in the collection."""
-    try:
-        return get_collection().count_documents({})
-    except Exception:
-        return 0
+    """Get total number of properties in the dataset."""
+    df = get_all_properties()
+    return len(df)
