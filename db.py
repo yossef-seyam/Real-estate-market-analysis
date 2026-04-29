@@ -4,14 +4,18 @@ MongoDB connection helper for the Property Analysis Dashboard.
 
 import pandas as pd
 from pymongo import MongoClient
+import os
+from urllib.parse import quote_plus
 
-MONGO_URI = "mongodb://localhost:27017"
-DB_NAME = "property_analysis"
+db_password = os.getenv("MONGO_PASSWORD", "seyam")
+encoded_pwd = quote_plus(db_password)
+MONGO_URI = os.getenv("MONGO_URI", f"mongodb+srv://joseyam:{encoded_pwd}@cluster0.r55mnz5.mongodb.net/?appName=Cluster0")
+
+DB_NAME = "real_estate_db"
 COLLECTION_NAME = "properties"
 
-
 def get_client():
-    return MongoClient(MONGO_URI)
+    return MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
 
 def get_db():
