@@ -3,10 +3,8 @@ matplotlib
 numpy
 pandas
 scipy
-pathlib
 xgboost
 scikit-learn
-pickle5
 streamlit
 pymongo
 plotly
